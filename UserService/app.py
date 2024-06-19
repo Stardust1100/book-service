@@ -12,68 +12,84 @@ app.config['JWT_SECRET_KEY'] = os.getenv('JWT_SECRET_KEY')
 bcrypt = Bcrypt(app)
 jwt = JWTManager(app)
 
-database_url = os.getenv('DATABASE_URL')
 
-conn = psycopg2.connect(database_url)
-
-
+# Connect to PostgreSQL database
 conn = psycopg2.connect(
-    dbname="mydatabase",
-    user="myuser",
-    password="mypassword",
-    host="/tmp"
+    dbname=os.getenv('DB_NAME'),
+    user=os.getenv('DB_USER'),
+    password=os.getenv('DB_PASSWORD'),
+    host=os.getenv('DB_HOST')
 )
+
+
+cursor = conn.cursor()
+
+# Create users table if it doesn't exist
+cursor.execute("""
+CREATE TABLE IF NOT EXISTS users (
+    id SERIAL PRIMARY KEY,
+    username VARCHAR(80) UNIQUE NOT NULL,
+    password VARCHAR(120) NOT NULL
+)
+""")
+conn.commit()
+
+@app.route('/', methods=['GET'])
+def new_route():
+    return jsonify({'message': 'This is a home route'}), 200
 
 @app.route('/register', methods=['POST'])
 def register():
-    pass  # Placeholder for future code
-    # Your registration logic here
+    data = request.get_json()
+    hashed_password = bcrypt.generate_password_hash(data['password']).decode('utf-8')
+    try:
+        cursor.execute("INSERT INTO users (username, password) VALUES (%s, %s)", (data['username'], hashed_password))
+        conn.commit()
+        return jsonify({'message': 'User created successfully'}), 201
+    except Exception as e:
+        conn.rollback()
+        return jsonify({'message': str(e)}), 400
 
 @app.route('/login', methods=['POST'])
 def login():
-    pass  # Placeholder for future code
-    # Your login logic here
+    data = request.get_json()
+    cursor.execute("SELECT * FROM users WHERE username = %s", (data['username'],))
+    user = cursor.fetchone()
+    if user and bcrypt.check_password_hash(user[2], data['password']):
+        access_token = create_access_token(identity={'username': user[1]})
+        return jsonify(access_token=access_token), 200
+    return jsonify({'message': 'Invalid credentials'}), 401
 
 @app.route('/profile', methods=['GET'])
 @jwt_required()
 def profile():
-    pass  # Placeholder for future code
-    # Your profile logic here
+    current_user = get_jwt_identity()
+    return jsonify(logged_in_as=current_user), 200
 
 
 
+class User:
+    def __init__(self, id, username, password):
+        self.id = id
+        self.username = username
+        self.password = password
 
-# class User(db.Model):
-#     id = db.Column(db.Integer, primary_key=True)
-#     username = db.Column(db.String(80), unique=True, nullable=False)
-#     password = db.Column(db.String(120), nullable=False)
-#
+def create_user(username, password):
+    hashed_password = bcrypt.generate_password_hash(password).decode('utf-8')
+    cursor.execute("INSERT INTO users (username, password) VALUES (%s, %s)", (username, hashed_password))
+    conn.commit()
 
-# @app.route('/register', methods=['POST'])
-# def register():
-#     data = request.get_json()
-#     hashed_password = bcrypt.generate_password_hash(data['password']).decode('utf-8')
-#     new_user = User(username=data['username'], password=hashed_password)
-#     db.session.add(new_user)
-#     db.session.commit()
-#     return jsonify({'message': 'User created successfully'}), 201
-#
 
-# @app.route('/login', methods=['POST'])
-# def login():
-#     data = request.get_json()
-#     user = User.query.filter_by(username=data['username']).first()
-#     if user and bcrypt.check_password_hash(user.password, data['password']):
-#         access_token = create_access_token(identity={'username': user.username})
-#         return jsonify(access_token=access_token), 200
-#     return jsonify({'message': 'Invalid credentials'}), 401
-#
+def get_user(username):
+    cursor.execute("SELECT * FROM users WHERE username = %s", (username,))
+    user_row = cursor.fetchone()
+    if user_row:
+        return User(id=user_row[0], username=user_row[1], password=user_row[2])
+    else:
+        return None
 
-# @app.route('/profile', methods=['GET'])
-# @jwt_required()
-# def profile():
-#     current_user = get_jwt_identity()
-#     return jsonify(logged_in_as=current_user), 200
+
+
 
 
 if __name__ == '__main__':
