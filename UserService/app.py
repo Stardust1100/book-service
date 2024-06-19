@@ -1,6 +1,6 @@
 from flask import Flask, request, jsonify
 from flask_bcrypt import Bcrypt
-from flask_jwt_extended import JWTManager, create_access_token, jwt_required, get_jwt_identity
+from flask_jwt_extended import JWTManager, create_access_token, jwt_required, get_jwt_identity, get_jwt
 import os
 from dotenv import load_dotenv
 import psycopg2
@@ -34,11 +34,20 @@ CREATE TABLE IF NOT EXISTS users (
 """)
 conn.commit()
 
-@app.route('/', methods=['GET'])
+from flask_jwt_extended import get_jwt
+
+@app.route('/user', methods=['GET'])
+@jwt_required()
 def new_route():
-    return jsonify({'message': 'This is a home route'}), 200
+    jwt = get_jwt()
+    if jwt:
+        current_user = get_jwt_identity()
+        return jsonify({'message': 'This is a home route', 'logged_in_as': current_user}), 200
+    else:
+        return jsonify({'message': 'This is a home route', 'status': 'Not logged in'}), 200
 
 @app.route('/register', methods=['POST'])
+@jwt_required()
 def register():
     data = request.get_json()
     hashed_password = bcrypt.generate_password_hash(data['password']).decode('utf-8')
@@ -51,6 +60,7 @@ def register():
         return jsonify({'message': str(e)}), 400
 
 @app.route('/login', methods=['POST'])
+@jwt_required()
 def login():
     data = request.get_json()
     cursor.execute("SELECT * FROM users WHERE username = %s", (data['username'],))
